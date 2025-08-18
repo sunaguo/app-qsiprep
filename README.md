@@ -12,7 +12,7 @@ This App runs [QSIPrep](https://github.com/pennbbl/qsiprep) on the [brainlife.io
 
 ### Authors
 - Giulia Bertò ([@giulia-berto](https://github.com/giulia-berto))
-- Suna Guo ([@soichih](https://github.com/sunaguo/))
+- Suna Guo ([@sunaguo](https://github.com/sunaguo/))
 
 ### Project director
 - Franco Pestilli ([@francopestilli](https://github.com/francopestilli))
