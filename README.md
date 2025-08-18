@@ -12,13 +12,13 @@ This App runs [QSIPrep](https://github.com/pennbbl/qsiprep) on the [brainlife.io
 
 ### Authors
 - Giulia Bertò ([@giulia-berto](https://github.com/giulia-berto))
-- Soichi Hayashi ([@soichih](https://github.com/soichih))
+- Suna Guo ([@soichih](https://github.com/sunaguo/))
 
 ### Project director
 - Franco Pestilli ([@francopestilli](https://github.com/francopestilli))
 
 ### Funding Acknowledgement
-brainlife.io is publicly funded and for the sustainability of the project it is helpful to Acknowledge the use of the platform. We kindly ask that you acknowledge the funding below in your code and publications. Copy and past the following lines into your repository when using this code.
+Brainlife.io is publicly funded, and for the project's sustainability, it is helpful to acknowledge the use of the platform. We ask that you acknowledge the funding below in your code and publications. Copy and paste the following lines into your repository when using this code.
 
 [![NSF-BCS-1734853](https://img.shields.io/badge/NSF_BCS-1734853-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1734853)
 [![NSF-BCS-1636893](https://img.shields.io/badge/NSF_BCS-1636893-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1636893)
