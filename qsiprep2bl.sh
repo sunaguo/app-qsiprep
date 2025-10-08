@@ -48,6 +48,10 @@ outfile="sub-${sub}"
 [ "$acq" != "null" ] && outfile=${outfile}_acq-${acq[0]}
 
 # copy the appropriate anatomy data, based on space input
+## NOTES: after changing dwi names to bidsguess, it will output two versions of masks
+## 1. sub-{sub}_space-ACPC_desc-brain_mask.nii.gz
+## 2. sub-{sub}_acq-epse2_space-ACPC_desc-brain_mask.nii.gz (following bidsguess)
+## both aligned to preprocessed T1, but 2 cuts off more dura. I guess whichever is fine ╮(╯▽╰)╭
 if [ $space == "T1w" ]; then
     find $SRCDIR -type f -name "sub-${sub}*_desc-preproc*_T1w.nii.gz" ! -name "*_space-MNI152NLin2009cAsym*" -exec cp {} output_anat_preproc/t1.nii.gz \;
     find $SRCDIR -type f -name "sub-${sub}*_dseg.nii.gz" ! -name "*_space-MNI152NLin2009cAsym*" -exec cp {} output_dseg/parc.nii.gz \;
@@ -92,9 +96,9 @@ if [ $xflip == "true" ]; then
     #cp dwi.bvecs output_dwi/dwi.bvecs #flipped bvecs
 
     # simpler version
-    grad=$outsub/dwi/${outfile}_space-ACPC_desc-preproc_dwi.b
+    grad=$(find $outsub/dwi -type f -name "${outfile}*_space-ACPC_desc-preproc_dwi.b")
     time singularity exec -e docker://brainlife/mrtrix3:3.0.3 \
-        mrconvert output_dwi/dwi.nii.gz -grad $grad output.mif \
+        mrconvert output_dwi/dwi.nii.gz -grad ${grad[0]} output.mif \
         -export_grad_fsl output_dwi/dwi.bvecs dwi.bvals -force
     rm output.mif
     rm dwi.bvals
