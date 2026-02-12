@@ -2,23 +2,37 @@
 ## stuff from jobheader.sh
 #PBS -N qsiprep
 
+
+CPUs_available () {
+                        
+			local cpu_load=$( echo $( top -b -n2 | grep "Cpu(s)" | awk '{print $2+$4}' | tail -n1 ))		# calcolo del carico della cpu%
+			local cpu_load_f=$(echo "scale=5; ${cpu_load}/100  " | bc)
+			local cpu_num_all_n=$(( $( getconf _NPROCESSORS_ONLN )-0 ))	
+			local cores_used=$(echo "scale=5; ${cpu_load_f}*${cpu_num_all_n} " | bc)
+			local cores_used=${cores_used%.*}
+			local cores_used=$(( ${cores_used}-0 ))								# numero processori attalmente in uso
+			local cpu_num_all=$(( cpu_num_all_n-$cores_used))							# numero totale processori disponibili
+			echo $cpu_num_all
+
+			};
+
+
 set -x
 set -e
-
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/"
 export FREESURFER_LICENSE="hayashis@iu.edu 29511 *CPmh9xvKQKHE FSg0ijTusqaQc"
 echo $FREESURFER_LICENSE > license.txt
 
 bl2bids
 
+
 WORKDIRNAME=$(pwd)/qsipworkdir
 outdir=$(pwd)/output
 
-resolution=$(jq -r .output_resolution config.json) 
-space=$(jq -r .output_space config.json) 
-template=$(jq -r .template config.json) 
-#sub=$(jq -r '._inputs[] | select(.id == "t1w") | .meta.subject' config.json)
-sub=$(jq -r '._inputs[0].meta.subject' config.json)
 dwi=$(jq -r .dwi config.json)
+space=$(jq -r .output_space config.json)
+resolution=$(jq -r .output_resolution config.json)
+sub=$(jq -r '._inputs[0].meta.subject' config.json)
 skipbidsvalidation=$(jq -r .skipbidsvalidation config.json)
 denoise_method=$(jq -r .denoise_method config.json)
 distortion_group_merge=$(jq -r .distortion_group_merge config.json)
@@ -26,84 +40,148 @@ unringing_method=$(jq -r .unringing_method config.json)
 hmc_transform=$(jq -r .hmc_transform config.json)
 infant=$(jq -r .infant config.json)
 syn_sdc=$(jq -r .syn_sdc config.json)
-force_syn=$(jq -r .force_syn config.json) #keep to be back compatible
+force_syn=$(jq -r .force_syn config.json)
 check_flip_bvecs=$(jq -r .check_flip_bvecs config.json)
-#reconall=$(jq -r .reconall config.json)
+b1_biascorrect_stage=$(jq -r .b1_biascorrect_stage config.json)
+hmc_model=$(jq -r .hmc_model config.json)
+pepolar_method=$(jq -r .pepolar_method config.json)
 
 optional=""
 
+# multi-DWI merge option
 if [[ $dwi == *","* ]]; then 
-	echo "Multi dwi input found. Distortion group merge option: ${distortion_group_merge}"; 
-	optional="$optional --distortion-group-merge ${distortion_group_merge}";	
+    echo "Multi DWI input found. Distortion group merge option: ${distortion_group_merge}"
+    optional="$optional --distortion-group-merge ${distortion_group_merge}"
 fi
 
-if [[ $space == "MNI152NLin2009cAsym" ]]; then 
-	echo "Sampling T1w, brain mask, and parcellation/volume to MNI152NLin2009cAsym space."; 
-	optional="$optional --template MNI152NLin2009cAsym";	
+# spatial normalization
+if [[ $space == "MNI152NLin2009cAsym" ]]; then
+    echo "Performing normalization to MNI152NLin2009cAsym space."
+    optional="$optional --anatomical-template MNI152NLin2009cAsym"
 fi
 
 # boolean options
 [ $skipbidsvalidation == "true" ] && optional="$optional --skip-bids-validation"
 [ $infant == "true" ] && optional="$optional --infant"
-[ $syn_sdc == "true" ] && optional="$optional --use-syn-sdc --force-syn"
-#[ $reconall == "true" ] && optional="$optional --do-reconall"
-    
-# remove if stuff already exists
-rm -rf $WORKDIRNAME && mkdir -p $WORKDIRNAME
-rm -rf $outdir && mkdir -p $outdir
 
-## EXPERIMENTAL: try to use freesufer input
-## removing the following since it's not used in the preprocessing workflow
-#inFSDIR=`jq -r '.fsin' config.json`
-#
-#if [[ $inFSDIR != "null" ]] ; then
-#
-#    #clean up previous freesurfer dir if it exists
-#    rm -rf $outdir/freesurfer
-#    mkdir -p $outdir/freesurfer
-#
-#    #TODO - strip alphanumeric chars?
-#    cp -rH $inFSDIR $outdir/freesurfer/sub-$sub
-#    chmod -R +rw $outdir/freesurfer
+# --- Smart DWI renaming: sequential runs, optional BidsGuess ---
+dwi_use_bidsguess=$(jq -r .dwi_use_bidsguess config.json)
+if [[ $dwi_use_bidsguess == "true" ]]; then
+    echo "Renaming DWI files sequentially (_run-1, _run-2, ...) with optional BidsGuess override."
+    i=1
+    find bids/sub-$sub -type f -path "*/dwi/*.json" | sort | while read -r json; do
+        base=$(basename "$json" .json)
+        dir=$(dirname "$json")
 
-#    #run reconall to get the fsaverage folder - 
-#    #it should recognize though the folder just created
-#    if $reconall == "false"; then
-#        optional="$optional --do-reconall"
-#    fi
-#fi
+        # define default tag
+        run_tag="_run-${i}"
+        guess=$(jq -r '.BidsGuess[1] // empty' "$json")
 
-# avoid templateflow problems on HPC's running singularity
+        # if valid BidsGuess, replace run_tag with it
+        if [[ -n "$guess" && "$guess" != "null" ]]; then
+            tag="$guess"
+        else
+            tag="$run_tag"
+        fi
+
+        echo "Renaming $base files → tag: $tag"
+
+        for fn in "$dir"/$base.*; do
+            # Handle both single- and double-extension files (.nii.gz)
+            if [[ "$fn" == *.nii.gz ]]; then
+                mv "$fn" "$dir/sub-${sub}${tag}_dwi.nii.gz"
+            else
+                ext="${fn##*.}"
+                mv "$fn" "$dir/sub-${sub}${tag}_dwi.${ext}"
+            fi
+        done
+
+        ((i++))
+    done
+fi
+
+# clean work/output dirs
+#rm -rf $WORKDIRNAME && mkdir -p $WORKDIRNAME
+#rm -rf $outdir && mkdir -p $outdir
+
+# avoid templateflow problems on HPCs
 mkdir -p templateflow
 export SINGULARITYENV_TEMPLATEFLOW_HOME=$PWD/templateflow
 
-# set FreeSurfer
+# FreeSurfer license check
 [ -z "$FREESURFER_LICENSE" ] && echo "Please set FREESURFER_LICENSE in .bashrc" && exit 1;
 
-# check and flip bvecs if needed (actually not needed since qsiprep should check it)
-#if [[ $check_flip_bvecs == "true" ]]; then 
-#	echo "check if bvecs need to be flipped - flip them if necessary"
-#	./check_and_flip_bvecs.sh
-#fi
+# sanity check
+tree bids
 
-# QSIPrep
+# --- bvec/bval integrity check ---
+echo ">>> Checking and fixing DWI bvec integrity..."
+
+find bids -type f -name "*.bvec" | while read -r bvec; do
+    echo "Checking: $bvec"
+    rows=$(awk 'END{print NR}' "$bvec")
+    cols=$(awk 'NR==1{print NF}' "$bvec")
+
+    if [ "$rows" -ne 3 ]; then
+        echo "   Warning: $bvec has $rows rows instead of 3 — truncating/fixing."
+        head -n 3 "$bvec" > tmp && mv tmp "$bvec"
+    fi
+
+    awk '{$1=$1; print}' "$bvec" > tmp && mv tmp "$bvec"
+
+    awk '{print NF}' "$bvec" | uniq -c > tmpcount
+    if [ "$(wc -l < tmpcount)" -ne 1 ]; then
+        echo "   Mismatch in column counts across rows in $bvec"
+        cat tmpcount
+    else
+        echo "   Consistent row structure: 3 rows × $cols columns"
+    fi
+    rm -f tmpcount
+done
+
+echo ">>> Cross-checking .bval and .bvec column counts..."
+for bval in $(find bids -type f -name "*.bval"); do
+    base=${bval%.bval}
+    bvec=${base}.bvec
+    if [ -f "$bvec" ]; then
+        nval=$(awk '{print NF}' "$bval")
+        nbvec=$(awk 'NR==1{print NF}' "$bvec")
+        if [ "$nval" -ne "$nbvec" ]; then
+            echo "   Mismatch: $(basename $base) → bval=$nval, bvec=$nbvec"
+        else
+            echo "   $(basename $base): counts match ($nval)"
+        fi
+    fi
+done
+
+echo ">>> bvec integrity check completed."
+# --- end integrity check ---
+
+singularity exec -e  docker://pennlinc/qsiprep:1.0.1 python ./validate_phase_encoding.py bids
+
+
+#docker://docker://pennlinc/qsiprep:1.0.1 \
+# --- Run QSIPrep ---
 time singularity exec -e \
-    docker://pennbbl/qsiprep:0.14.2 \
-    /usr/local/miniconda/bin/qsiprep \
+     docker://pennbbl/qsiprep:0.24.0 \
+    qsiprep \
     --fs-license-file license.txt \
+    --anat-modality T1w \
     --output-resolution $resolution \
     --denoise-method $denoise_method \
     --unringing-method $unringing_method \
     --hmc-transform $hmc_transform \
-    --nthreads 8 \
+    --hmc-model $hmc_model \
+    --b1-biascorrect-stage $b1_biascorrect_stage \
+    --pepolar-method $pepolar_method \
+    --nthreads $( CPUs_available ) \
     --verbose \
     --work-dir $WORKDIRNAME \
-    bids $outdir participant \
-    $optional
-    
+    --stop-on-first-crash \
+    $optional \
+    bids $outdir participant
+
 echo "done with qsiprep! - now organizing output"
 ./qsiprep2bl.sh
 
-rm -r $WORKDIRNAME # save lots of space    
-
-echo "all done!" 
+echo "all done!"

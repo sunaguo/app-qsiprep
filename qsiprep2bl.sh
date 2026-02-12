@@ -35,7 +35,7 @@ mkdir -p output_report
 # directory, and is used specifically to grab the appropriate t1 data. outfile
 # is the subject stem, and is used to make identifying the appropriate dwi
 # files easier
-outdir=$outstem/qsiprep
+outdir=$outstem
 outsub="$outdir/sub-${sub}"
 SRCDIR=$outsub/anat
 outfile="sub-${sub}"
@@ -49,19 +49,23 @@ outfile="sub-${sub}"
 
 # copy the appropriate anatomy data, based on space input
 if [ $space == "T1w" ]; then
-    cp $SRCDIR/sub-${sub}_desc-preproc_T1w.nii.gz output_anat_preproc/t1.nii.gz;
-    cp $SRCDIR/sub-${sub}_dseg.nii.gz output_dseg/parc.nii.gz;
-    cp $SRCDIR/sub-${sub}_desc-brain_mask.nii.gz output_brainmask/mask.nii.gz;
+    find $SRCDIR -type f -name "sub-${sub}*_desc-preproc*_T1w.nii.gz" ! -name "*_space-MNI152NLin2009cAsym*" -exec cp {} output_anat_preproc/t1.nii.gz \;
+    find $SRCDIR -type f -name "sub-${sub}*_dseg.nii.gz" ! -name "*_space-MNI152NLin2009cAsym*" -exec cp {} output_dseg/parc.nii.gz \;
+    find $SRCDIR -type f -name "sub-${sub}*_desc-brain*_mask.nii.gz" ! -name "*_space-MNI152NLin2009cAsym*" -exec cp {} output_brainmask/mask.nii.gz \;
 elif [ $space == "MNI152NLin2009cAsym" ]; then
-    cp $SRCDIR/sub-${sub}_space-MNI152NLin2009cAsym_desc-preproc_T1w.nii.gz output_anat_preproc/t1.nii.gz;
-    cp $SRCDIR/sub-${sub}_space-MNI152NLin2009cAsym_dseg.nii.gz output_dseg/parc.nii.gz;
-    cp $SRCDIR/sub-${sub}_space-MNI152NLin2009cAsym_desc-brain_mask.nii.gz output_brainmask/mask.nii.gz;
+    cp $SRCDIR/sub-${sub}*_space-MNI152NLin2009cAsym*_desc-preproc*_T1w.nii.gz output_anat_preproc/t1.nii.gz;
+    cp $SRCDIR/sub-${sub}*_space-MNI152NLin2009cAsym*_dseg.nii.gz output_dseg/parc.nii.gz;
+    cp $SRCDIR/sub-${sub}*_space-MNI152NLin2009cAsym*_desc-brain*_mask.nii.gz output_brainmask/mask.nii.gz;
 fi
 
 # copy dwi output to bl output dir
-cp $outsub/dwi/${outfile}_space-T1w_desc-preproc_dwi.nii.gz output_dwi/dwi.nii.gz
-cp $outsub/dwi/${outfile}_space-T1w_desc-preproc_dwi.bvec output_dwi/dwi.bvecs
-cp $outsub/dwi/${outfile}_space-T1w_desc-preproc_dwi.bval output_dwi/dwi.bvals
+## TODO: rerun with template space to check "space" label for dwi output
+# cp $outsub/dwi/${outfile}*_space-T1w*_desc-preproc*_dwi.nii.gz output_dwi/dwi.nii.gz
+# cp $outsub/dwi/${outfile}*_space-T1w*_desc-preproc*_dwi.bvec output_dwi/dwi.bvecs
+# cp $outsub/dwi/${outfile}*_space-T1w*_desc-preproc*_dwi.bval output_dwi/dwi.bvals
+cp $outsub/dwi/${outfile}*_space-ACPC*_desc-preproc*_dwi.nii.gz output_dwi/dwi.nii.gz
+cp $outsub/dwi/${outfile}*_space-ACPC*_desc-preproc*_dwi.bvec output_dwi/dwi.bvecs
+cp $outsub/dwi/${outfile}*_space-ACPC*_desc-preproc*_dwi.bval output_dwi/dwi.bvals
 
 # copy over report html to output dir
 for html in $(cd $outstem && find -name "*.html"); do
@@ -75,7 +79,9 @@ for dir in $(cd $outstem && find ./ -name figures); do
 done
 
 # rename the parent directory to confirm to brainlife html output
-mv output_report/qsiprep output_report/html
+mv output_report/ html 
+mkdir output_report 
+mv html output_report
 
 # flip bvecs
 if [ $xflip == "true" ]; then
@@ -86,7 +92,7 @@ if [ $xflip == "true" ]; then
     #cp dwi.bvecs output_dwi/dwi.bvecs #flipped bvecs
 
     # simpler version
-    grad=$outsub/dwi/${outfile}_space-T1w_desc-preproc_dwi.b
+    grad=$outsub/dwi/${outfile}_space-ACPC_desc-preproc_dwi.b
     time singularity exec -e docker://brainlife/mrtrix3:3.0.3 \
         mrconvert output_dwi/dwi.nii.gz -grad $grad output.mif \
         -export_grad_fsl output_dwi/dwi.bvecs dwi.bvals -force
@@ -96,8 +102,9 @@ fi
 
 # copy confounds.tsv file to regressors directory
 [ ! -d ./regressors ] && mkdir -p regressors
-[ ! -f ./regressors/regressors.tsv ] && cp $outsub/dwi/*_confounds.tsv ./regressors/regressors.tsv
+[ ! -f ./regressors/regressors.tsv ] && cp $outsub/dwi/*desc-confounds*.tsv ./regressors/regressors.tsv
 
 # copy dwiqc.json file to dwiqc directory
+## qsiprep 0.24.0: qc file is now a single line csv
 [ ! -d ./dwiqc ] && mkdir -p dwiqc
-[ ! -f ./dwiqc/dwiqc.json ] && cp $outdir/dwiqc.json ./dwiqc/dwiqc.json
+[ ! -f ./dwiqc/dwiqc.json ] && cp $outsub/dwi/*desc-image_qc.csv ./dwiqc/dwiqc.csv
